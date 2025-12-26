@@ -2,12 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -26,15 +21,25 @@ import {
   Users,
   Trash2,
   Eye,
+  RefreshCcw,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { AuthService, GuestService, type GuestEntry } from "@/lib/auth";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import * as XLSX from "xlsx";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const AdminDashboard = () => {
   const [guests, setGuests] = useState<GuestEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMonth, setFilterMonth] = useState<string>("");
   const [filterYear, setFilterYear] = useState<string>("");
@@ -42,6 +47,10 @@ const AdminDashboard = () => {
   const [deleteGuestId, setDeleteGuestId] = useState<string | null>(null);
   const [showDeletePopover, setShowDeletePopover] = useState(false);
   const [showBulkDeletePopover, setShowBulkDeletePopover] = useState(false);
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -54,242 +63,238 @@ const AdminDashboard = () => {
     return d.toLocaleDateString("en-GB");
   };
 
-  const loadGuests = async () => {
-    try {
-      const data = await GuestService.getAllGuests();
-      setGuests(data);
-    } catch (error) {
-      console.error(error);
-      toast({ title: "Error", description: "Failed to load guests." });
-    }
-  };
-
   useEffect(() => {
-    loadGuests();
-    window.addEventListener("guestsUpdated", loadGuests);
-    return () => window.removeEventListener("guestsUpdated", loadGuests);
+    const unsubscribe = GuestService.listenGuests((data) => {
+      setGuests(data);
+      setIsLoading(false);  
+    });
+    return () => unsubscribe();
   }, []);
 
   const availableYears = useMemo(() => {
-  const years = new Set<number>();
+    const years = new Set<number>();
+    guests.forEach((g) => {
+      if (g.checkInDate) years.add(new Date(g.checkInDate).getFullYear());
+      if (g.checkOutDate) years.add(new Date(g.checkOutDate).getFullYear());
+    });
+    return Array.from(years).sort((a, b) => b - a);
+  }, [guests]);
 
-  guests.forEach((g) => {
-    const inDate = g.checkInDate ? new Date(g.checkInDate) : null;
-    const outDate = g.checkOutDate ? new Date(g.checkOutDate) : null;
+  const filteredGuests = useMemo(() => {
+    const result = guests.filter((g) => {
+      const matchesSearch =
+        searchTerm === "" ||
+        g.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        g.aadharNumber.includes(searchTerm) ||
+        g.phoneNumber.includes(searchTerm);
 
-    if (inDate && !isNaN(inDate.getTime())) {
-      years.add(inDate.getFullYear());
-    }
-    if (outDate && !isNaN(outDate.getTime())) {
-      years.add(outDate.getFullYear());
-    }
-  });
-
-  return Array.from(years).sort((a, b) => b - a);
-}, [guests]);
-
-
- const filteredGuests = useMemo(() => {
-  return guests.filter((g) => {
-    const matchesSearch =
-      searchTerm === "" ||
-      g.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      g.aadharNumber.includes(searchTerm) ||
-      g.phoneNumber.includes(searchTerm);
-
-    const matchesMonth =
-  filterMonth === "" ||
-  (
-    (g.checkInDate &&
-      !isNaN(new Date(g.checkInDate).getTime()) &&
-      new Date(g.checkInDate).getMonth() + 1 === Number(filterMonth)) ||
-    (g.checkOutDate &&
-      !isNaN(new Date(g.checkOutDate).getTime()) &&
-      new Date(g.checkOutDate).getMonth() + 1 === Number(filterMonth))
-  );
-
-
-    const matchesYear =
-      filterYear === "" ||
-      (
+      const matchesMonth =
+        filterMonth === "" ||
         (g.checkInDate &&
-          !isNaN(new Date(g.checkInDate).getTime()) &&
+          new Date(g.checkInDate).getMonth() + 1 === Number(filterMonth)) ||
+        (g.checkOutDate &&
+          new Date(g.checkOutDate).getMonth() + 1 === Number(filterMonth));
+
+      const matchesYear =
+        filterYear === "" ||
+        (g.checkInDate &&
           new Date(g.checkInDate).getFullYear() === Number(filterYear)) ||
         (g.checkOutDate &&
-          !isNaN(new Date(g.checkOutDate).getTime()) &&
-          new Date(g.checkOutDate).getFullYear() === Number(filterYear))
-      );
+          new Date(g.checkOutDate).getFullYear() === Number(filterYear));
 
-    return matchesSearch && matchesMonth && matchesYear;
-  });
-}, [guests, searchTerm, filterMonth, filterYear]);
+      return matchesSearch && matchesMonth && matchesYear;
+    });
 
+    setCurrentPage(1);
+    return result;
+  }, [guests, searchTerm, filterMonth, filterYear]);
 
-  const stats = useMemo(() => ({ total: filteredGuests.length }), [filteredGuests]);
+  const totalPages = Math.ceil(filteredGuests.length / rowsPerPage);
+
+  const paginatedGuests = filteredGuests.slice(
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
+  );
+
+  const stats = useMemo(() => {
+    return {
+      total: guests.length,
+      thisMonth: guests.filter(
+        (g) =>
+          g.checkInDate &&
+          new Date(g.checkInDate).getMonth() === new Date().getMonth()
+      ).length,
+      thisYear: guests.filter(
+        (g) =>
+          g.checkInDate &&
+          new Date(g.checkInDate).getFullYear() === new Date().getFullYear()
+      ).length,
+    };
+  }, [guests]);
 
   const handleLogout = () => {
     AuthService.logout();
     navigate("/");
   };
 
-  // Single delete handler
   const confirmDeleteGuest = async () => {
     if (!deleteGuestId) return;
     try {
       await GuestService.deleteGuest(deleteGuestId);
-      setGuests((prev) => prev.filter((g) => g.id !== deleteGuestId));
-      setSelectedGuests((prev) => {
-        const copy = new Set(prev);
-        copy.delete(deleteGuestId);
-        return copy;
-      });
-      toast({ title: "Deleted", description: "Guest has been deleted." });
-      window.dispatchEvent(new Event("guestsUpdated"));
+      toast({ title: "Deleted", description: "Guest removed successfully" });
       setDeleteGuestId(null);
       setShowDeletePopover(false);
-    } catch (error) {
-      console.error(error);
-      toast({ title: "Error", description: "Failed to delete guest." });
+    } catch {
+      toast({ title: "Error", description: "Failed to delete guest" });
     }
   };
 
-  // Bulk delete handler
   const confirmBulkDelete = async () => {
     if (selectedGuests.size === 0) return;
-
     try {
       await Promise.all(
-        Array.from(selectedGuests).map((id) => GuestService.deleteGuest(id))
+        [...selectedGuests].map((id) => GuestService.deleteGuest(id))
       );
-      setGuests((prev) => prev.filter((g) => !selectedGuests.has(g.id)));
       setSelectedGuests(new Set());
-      toast({ title: "Deleted", description: "Selected guests have been deleted." });
-      window.dispatchEvent(new Event("guestsUpdated"));
+      toast({ title: "Deleted", description: "Selected guests deleted" });
       setShowBulkDeletePopover(false);
-    } catch (error) {
-      console.error(error);
-      toast({ title: "Error", description: "Failed to delete selected guests." });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to delete selected guests",
+      });
     }
   };
 
   const toggleSelectGuest = (id: string) => {
     setSelectedGuests((prev) => {
       const copy = new Set(prev);
-      if (copy.has(id)) copy.delete(id);
-      else copy.add(id);
+      copy.has(id) ? copy.delete(id) : copy.add(id);
       return copy;
     });
   };
 
   const toggleSelectAll = () => {
-    if (selectedGuests.size === filteredGuests.length) {
+    if (selectedGuests.size === paginatedGuests.length)
       setSelectedGuests(new Set());
-    } else {
-      setSelectedGuests(new Set(filteredGuests.map((g) => g.id)));
-    }
+    else setSelectedGuests(new Set(paginatedGuests.map((g) => g.id)));
   };
 
   const handleExportExcel = () => {
-    if (filteredGuests.length === 0) {
-      toast({ title: "No Data", description: "There are no guests to export." });
-      return;
-    }
+    if (!filteredGuests.length)
+      return toast({ title: "No Data", description: "Nothing to export" });
 
     const data = filteredGuests.map((g, i) => ({
       No: i + 1,
-      "Full Name": g.fullName,
-      "Aadhar No": g.aadharNumber,
+      Name: g.fullName,
+      Aadhar: g.aadharNumber,
       Address: g.address,
       Phone: g.phoneNumber,
       Guests: g.guestCount,
-      "Check-In": formatDate(g.checkInDate),
-      "Check-Out": formatDate(g.checkOutDate),
+      CheckIn: formatDate(g.checkInDate),
+      CheckOut: formatDate(g.checkOutDate),
     }));
 
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const maxColumnLengths = Object.keys(data[0]).map((key) => {
-      const lengths = data.map((row) => (row[key] ? String(row[key]).length : 0));
-      lengths.push(key.length);
-      return Math.max(...lengths);
-    });
-    worksheet["!cols"] = maxColumnLengths.map((w) => ({ wch: w + 2 }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws["!cols"] = Object.keys(data[0]).map(() => ({ wch: 22 }));
 
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Guests");
-    XLSX.writeFile(workbook, "guest_list.xlsx");
-
-    toast({ title: "Export Completed", description: "Excel exported successfully." });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Guests");
+    XLSX.writeFile(wb, "Guest_Report.xlsx");
   };
 
   return (
     <ProtectedRoute requiredRole="admin">
-      <div className="min-h-screen bg-gray-100 text-gray-900">
-        {/* Header */}
-        <header className="bg-white shadow-md border-b border-gray-200">
+      <div className="min-h-screen bg-gray-100">
+        {/* HEADER */}
+        <header className="bg-white shadow-sm border-b">
           <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gray-200 rounded-lg flex items-center justify-center">
-                <Shield className="w-5 h-5 text-gray-700" />
-              </div>
+              <Shield className="w-8 h-8 text-indigo-600" />
               <div>
                 <h1 className="text-xl font-bold">Admin Dashboard</h1>
                 <p className="text-sm text-gray-500">Welcome {user?.name}</p>
               </div>
             </div>
-            <Button
-              variant="outline"
-              className="gap-2 text-gray-700 border-gray-400"
-              onClick={handleLogout}
-            >
-              <LogOut className="w-4 h-4" />
-              Logout
+
+            <Button variant="outline" onClick={handleLogout} className="gap-2">
+              <LogOut size={18} /> Logout
             </Button>
           </div>
         </header>
 
-        {/* Main */}
+        {/* MAIN */}
         <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
-          {/* Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
-            <Card className="bg-white shadow-md border">
-              <CardContent className="p-6 flex justify-between items-center">
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Total Guests</p>
-                  <p className="text-2xl text-gray-900 font-bold">{stats.total}</p>
-                </div>
-                <Users className="w-8 h-8 text-gray-700" />
-              </CardContent>
-            </Card>
-          </div>
+ 
+          {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[1, 2, 3].map((i) => (
+                <Card key={i}>
+                  <CardContent className="p-5 space-y-3">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-9 w-28" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card>
+                <CardContent className="p-5">
+                  <p className="text-sm text-gray-500">Total Guests</p>
+                  <h2 className="text-3xl font-bold">{stats.total}</h2>
+                </CardContent>
+              </Card>
 
-          {/* Guest Table */}
-          <Card className="bg-white shadow-md border">
+              <Card>
+                <CardContent className="p-5">
+                  <p className="text-sm text-gray-500">This Month</p>
+                  <h2 className="text-3xl font-bold">{stats.thisMonth}</h2>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-5">
+                  <p className="text-sm text-gray-500">This Year</p>
+                  <h2 className="text-3xl font-bold">{stats.thisYear}</h2>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* TABLE */}
+          <Card>
             <CardHeader>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <CardTitle className="flex items-center gap-2 text-gray-900">
-                  <FileText className="w-5 h-5" />
-                  Guest List
+              <div className="flex flex-col md:flex-row justify-between gap-4">
+                <CardTitle className="flex items-center gap-2">
+                  <FileText /> Guest Records
                 </CardTitle>
-                <div className="flex flex-col sm:flex-row gap-2 items-center">
+
+                <div className="flex flex-wrap gap-2">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
+                    <Search
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+                    />
                     <Input
-                      placeholder="Search guests..."
+                      placeholder="Search guest..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10 w-full sm:w-64 bg-white border-gray-300 text-gray-900"
+                      className="pl-9 w-64"
                     />
                   </div>
 
                   <select
                     value={filterMonth}
                     onChange={(e) => setFilterMonth(e.target.value)}
-                    className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    className="border px-3 py-2 rounded"
                   >
                     <option value="">All Months</option>
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <option key={i + 1} value={i + 1}>
-                        {new Date(0, i).toLocaleString("default", { month: "long" })}
+                    {Array.from({ length: 12 }).map((_, i) => (
+                      <option value={i + 1} key={i}>
+                        {new Date(0, i).toLocaleString("default", {
+                          month: "long",
+                        })}
                       </option>
                     ))}
                   </select>
@@ -297,161 +302,261 @@ const AdminDashboard = () => {
                   <select
                     value={filterYear}
                     onChange={(e) => setFilterYear(e.target.value)}
-                    className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    className="border px-3 py-2 rounded"
                   >
                     <option value="">All Years</option>
                     {availableYears.map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
+                      <option key={y}>{y}</option>
                     ))}
                   </select>
 
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={handleExportExcel}
-                      variant="outline"
-                      className="gap-2 text-gray-700 border-gray-400"
-                    >
-                      <Download className="w-4 h-4" />
-                      Excel
-                    </Button>
+                  <Button
+                    variant="secondary"
+                    className="gap-1"
+                    onClick={() => {
+                      setFilterMonth("");
+                      setFilterYear("");
+                      setSearchTerm("");
+                    }}
+                  >
+                    <RefreshCcw size={16} /> Reset
+                  </Button>
 
-                    {/* Bulk Delete Popover */}
-                    <Popover open={showBulkDeletePopover} onOpenChange={setShowBulkDeletePopover}>
-                      <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="gap-1"
+                    onClick={handleExportExcel}
+                  >
+                    <Download size={16} /> Export
+                  </Button>
+
+                  <Popover
+                    open={showBulkDeletePopover}
+                    onOpenChange={setShowBulkDeletePopover}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="destructive"
+                        disabled={!selectedGuests.size}
+                        className="gap-1"
+                      >
+                        <Trash2 size={16} /> Delete Selected
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent>
+                      <p>Delete all selected guests?</p>
+                      <div className="flex justify-end gap-2 mt-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => setShowBulkDeletePopover(false)}
+                        >
+                          Cancel
+                        </Button>
                         <Button
                           variant="destructive"
-                          className="gap-2"
-                          disabled={selectedGuests.size === 0}
+                          onClick={confirmBulkDelete}
                         >
-                          <Trash2 className="w-4 h-4" />
-                          Delete Selected
+                          Confirm
                         </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="bg-white p-4 flex flex-col gap-2">
-                        <p>Are you sure you want to delete all selected guests?</p>
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline" onClick={() => setShowBulkDeletePopover(false)}>
-                            Cancel
-                          </Button>
-                          <Button variant="destructive" onClick={confirmBulkDelete}>
-                            Delete
-                          </Button>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
             </CardHeader>
 
             <CardContent>
-              <div className="overflow-x-auto">
-                <Table className="text-gray-900">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>
-                        <input
-                          type="checkbox"
-                          checked={selectedGuests.size === filteredGuests.length && filteredGuests.length > 0}
-                          onChange={toggleSelectAll}
-                        />
-                      </TableHead>
-                      <TableHead>No</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Aadhar No</TableHead>
-                      <TableHead>Address</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead>Guests</TableHead>
-                      <TableHead>Check-in</TableHead>
-                      <TableHead>Check-out</TableHead>
-                      <TableHead>Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredGuests.map((guest, index) => (
-                      <TableRow key={guest.id} className="hover:bg-gray-100">
-                        <TableCell>
-                          <input
-                            type="checkbox"
-                            checked={selectedGuests.has(guest.id)}
-                            onChange={() => toggleSelectGuest(guest.id)}
-                          />
-                        </TableCell>
-                        <TableCell>{index + 1}</TableCell>
-                        <TableCell>{guest.fullName}</TableCell>
-                        <TableCell>{guest.aadharNumber}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="p-1"
-                                  title="View Full Address"
-                                >
-                                  <Eye className="w-4 h-4 text-gray-600" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent className="bg-white text-gray-900 p-3 max-w-xs">
-                                <p className="break-words">{guest.address}</p>
-                              </PopoverContent>
-                            </Popover>
-                          </div>
-                        </TableCell>
-                        <TableCell>{guest.phoneNumber}</TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">{guest.guestCount}</Badge>
-                        </TableCell>
-                        <TableCell>{formatDate(guest.checkInDate)}</TableCell>
-                        <TableCell>{formatDate(guest.checkOutDate)}</TableCell>
 
-                        {/* Single Delete Popover */}
-                        <TableCell>
-                          <Popover open={deleteGuestId === guest.id && showDeletePopover} onOpenChange={(open) => setShowDeletePopover(open)}>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                className="flex items-center gap-1"
-                                onClick={() => {
-                                  setDeleteGuestId(guest.id);
-                                  setShowDeletePopover(true);
-                                }}
-                              >
-                                <Trash2 className="w-4 h-4" /> Delete
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="bg-white p-4 flex flex-col gap-2">
-                              <p>Are you sure you want to delete this guest?</p>
-                              <div className="flex justify-end gap-2">
-                                <Button variant="outline" onClick={() => setShowDeletePopover(false)}>
-                                  Cancel
-                                </Button>
-                                <Button variant="destructive" onClick={confirmDeleteGuest}>
-                                  Delete
-                                </Button>
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {filteredGuests.length === 0 && (
-                <div className="text-center py-8">
-                  <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">
-                    {guests.length === 0
-                      ? "No guests have been added yet."
-                      : "No guests found matching your search."}
-                  </p>
+              
+              {isLoading ? (
+                <div className="space-y-3">
+                  {[1,2,3,4,5,6,7].map(i => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
                 </div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto max-h-[70vh]">
+                    <Table>
+                      <TableHeader className="sticky top-0 bg-white shadow">
+                        <TableRow>
+                          <TableHead>
+                            <input
+                              type="checkbox"
+                              checked={
+                                selectedGuests.size === paginatedGuests.length &&
+                                paginatedGuests.length > 0
+                              }
+                              onChange={toggleSelectAll}
+                            />
+                          </TableHead>
+                          <TableHead>No</TableHead>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Aadhar</TableHead>
+                          <TableHead>Address</TableHead>
+                          <TableHead>Phone</TableHead>
+                          <TableHead>Guests</TableHead>
+                          <TableHead>Check-in</TableHead>
+                          <TableHead>Check-out</TableHead>
+                          <TableHead>Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+
+                      <TableBody>
+                        {paginatedGuests.map((guest, index) => (
+                          <TableRow key={guest.id}>
+                            <TableCell>
+                              <input
+                                type="checkbox"
+                                checked={selectedGuests.has(guest.id)}
+                                onChange={() => toggleSelectGuest(guest.id)}
+                              />
+                            </TableCell>
+
+                            <TableCell>
+                              {(currentPage - 1) * rowsPerPage + index + 1}
+                            </TableCell>
+
+                            <TableCell>{guest.fullName}</TableCell>
+                            <TableCell>{guest.aadharNumber}</TableCell>
+
+                            <TableCell>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="p-1"
+                                  >
+                                    <Eye size={16} />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="max-w-xs">
+                                  <p>{guest.address}</p>
+                                </PopoverContent>
+                              </Popover>
+                            </TableCell>
+
+                            <TableCell>{guest.phoneNumber}</TableCell>
+                            <TableCell>
+                              <Badge>{guest.guestCount}</Badge>
+                            </TableCell>
+                            <TableCell>{formatDate(guest.checkInDate)}</TableCell>
+                            <TableCell>{formatDate(guest.checkOutDate)}</TableCell>
+
+                            <TableCell>
+                              <Popover
+                                open={
+                                  deleteGuestId === guest.id &&
+                                  showDeletePopover
+                                }
+                                onOpenChange={setShowDeletePopover}
+                              >
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => setDeleteGuestId(guest.id)}
+                                    className="gap-1"
+                                  >
+                                    <Trash2 size={14} /> Delete
+                                  </Button>
+                                </PopoverTrigger>
+
+                                <PopoverContent>
+                                  <p>Delete this guest?</p>
+                                  <div className="flex justify-end gap-2 mt-2">
+                                    <Button
+                                      variant="outline"
+                                      onClick={() =>
+                                        setShowDeletePopover(false)
+                                      }
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      variant="destructive"
+                                      onClick={confirmDeleteGuest}
+                                    >
+                                      Confirm
+                                    </Button>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* PAGINATION */}
+                  {filteredGuests.length > 0 && (
+                    <div
+                      className="
+                      mt-4 
+                      bg-white 
+                      sticky bottom-0 
+                      p-3 
+                      rounded-md 
+                      border-t 
+                      flex flex-col md:flex-row 
+                      items-center 
+                      md:justify-between 
+                      gap-3
+                    "
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-600">
+                          Rows per page:
+                        </span>
+                        <select
+                          value={rowsPerPage}
+                          onChange={(e) => {
+                            setRowsPerPage(Number(e.target.value));
+                            setCurrentPage(1);
+                          }}
+                          className="border rounded px-2 py-1 text-sm"
+                        >
+                          <option value={10}>10</option>
+                          <option value={20}>20</option>
+                          <option value={50}>50</option>
+                        </select>
+                      </div>
+
+                      <p className="text-sm text-gray-600 text-center">
+                        Page {currentPage} of {totalPages || 1}
+                      </p>
+
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          disabled={currentPage === 1}
+                          onClick={() => setCurrentPage((p) => p - 1)}
+                          className="h-9 w-10 flex items-center justify-center"
+                        >
+                          <ChevronLeft />
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          disabled={currentPage === totalPages}
+                          onClick={() => setCurrentPage((p) => p + 1)}
+                          className="h-9 w-10 flex items-center justify-center"
+                        >
+                          <ChevronRight />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {!filteredGuests.length && (
+                    <div className="text-center py-8 text-gray-500">
+                      <Users className="mx-auto w-10 h-10 mb-3" />
+                      No guest records found
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

@@ -1,7 +1,22 @@
-// Frontend authentication and data management
+import { auth, db } from "./firebase";
+import {
+  signInWithEmailAndPassword,
+  signOut,
+} from "firebase/auth";
+import {
+  collection,
+  addDoc,
+  getDoc,
+  getDocs,
+  deleteDoc,
+  doc,
+  updateDoc,
+  onSnapshot
+} from "firebase/firestore";
+
 export interface User {
   email: string;
-  role: 'admin' | 'watchman';
+  role: "admin" | "watchman";
   name: string;
 }
 
@@ -14,124 +29,119 @@ export interface GuestEntry {
   address: string;
   checkInDate?: string;
   checkOutDate?: string;
-  status: 'checked-in' | 'checked-out';
+  status: "checked-in" | "checked-out";
   createdAt: string;
   createdBy: string;
 }
 
-// Mock users for demo
-const DEMO_USERS = {
-  'admin@demo.com': { email: 'admin@demo.com', role: 'admin' as const, name: 'Admin User' },
-  'watchman@demo.com': { email: 'watchman@demo.com', role: 'watchman' as const, name: 'Security Guard' },
-};
-
+// -------- AUTH SERVICE --------
 export class AuthService {
-  static login(email: string, password: string): User | null {
-    const user = DEMO_USERS[email as keyof typeof DEMO_USERS];
-    if (user) {
-      localStorage.setItem('currentUser', JSON.stringify(user));
-      return user;
-    }
-    return null;
+  static async login(email: string, password: string): Promise<User | null> {
+    const res = await signInWithEmailAndPassword(auth, email, password);
+
+    const userDoc = await getDoc(doc(db, "users", res.user.uid));
+    if (!userDoc.exists()) return null;
+
+    const data = userDoc.data() as any;
+
+    // 🔥 Normalize & clean values
+    const user: User = {
+      email: String(data.email || "").trim(),
+      name: String(data.name || "").trim(),
+      role: String(data.role || "").trim() === "admin" ? "admin" : "watchman"
+    };
+
+    localStorage.setItem("currentUser", JSON.stringify(user));
+    return user;
   }
 
-  static logout(): void {
-    localStorage.removeItem('currentUser');
+  static logout() {
+    localStorage.removeItem("currentUser");
+    return signOut(auth);
   }
 
   static getCurrentUser(): User | null {
-    const userStr = localStorage.getItem('currentUser');
-    return userStr ? JSON.parse(userStr) : null;
+    const u = localStorage.getItem("currentUser");
+    if (!u) return null;
+
+    const user = JSON.parse(u);
+
+    return {
+      email: String(user.email || "").trim(),
+      name: String(user.name || "").trim(),
+      role: String(user.role || "").trim()
+    } as User;
   }
 
-  static isAuthenticated(): boolean {
+  static isAuthenticated() {
     return !!this.getCurrentUser();
   }
 }
 
+// -------- GUEST SERVICE --------
 export class GuestService {
-  private static STORAGE_KEY = 'guestEntries';
-
-  static getAllGuests(): GuestEntry[] {
-    const data = localStorage.getItem(this.STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+  static async getAllGuests(): Promise<GuestEntry[]> {
+    const snap = await getDocs(collection(db, "guests"));
+    return snap.docs.map(d => ({
+      id: d.id,
+      ...(d.data() as GuestEntry),
+    }));
   }
 
-  static addGuest(
-  guestData: Omit<GuestEntry, 'id' | 'createdAt' | 'createdBy' | 'status'>
-): GuestEntry {
-  const guests = this.getAllGuests();
-  const currentUser = AuthService.getCurrentUser();
+  // REALTIME LISTENER
+  static listenGuests(callback: (guests: GuestEntry[]) => void) {
+    return onSnapshot(collection(db, "guests"), (snapshot) => {
+      const guests = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...(doc.data() as GuestEntry)
+      }));
 
-  const newGuest: GuestEntry = {
-    ...guestData,
-    id: Date.now().toString(),
-    status: 'checked-in',
-    createdAt: new Date().toISOString(),
-    createdBy: currentUser?.email || 'unknown',  
-  };
-
-  guests.push(newGuest);
-  this.saveGuests(guests);
-  window.dispatchEvent(new CustomEvent('guestsUpdated'));
-
-  return newGuest;
-}
-
-static updateGuestStatus(
-  id: string,
-  status: 'checked-in' | 'checked-out'
-): void {
-  const guests = this.getAllGuests();
-  const guestIndex = guests.findIndex((g) => g.id === id);
-
-  if (guestIndex !== -1) {
-    guests[guestIndex].status = status;
-    if (status === 'checked-out') {
-      guests[guestIndex].checkOutDate = new Date().toLocaleDateString("en-GB"); // 👈 only date
-    }
-    this.saveGuests(guests);
-    window.dispatchEvent(new CustomEvent('guestsUpdated'));
-  }
-}
-
-  /** 🔥 NEW: Delete a single guest */
-  static deleteGuest(id: string): void {
-    const guests = this.getAllGuests().filter((g) => g.id !== id);
-    this.saveGuests(guests);
-    window.dispatchEvent(new CustomEvent('guestsUpdated'));
+      callback(guests);
+    });
   }
 
-  /** 🔥 NEW: Delete multiple guests at once */
-  static deleteGuests(ids: string[]): void {
-    const guests = this.getAllGuests().filter((g) => !ids.includes(g.id));
-    this.saveGuests(guests);
-    window.dispatchEvent(new CustomEvent('guestsUpdated'));
+  static async addGuest(
+    guest: Omit<GuestEntry, "id" | "createdAt" | "createdBy" | "status">
+  ) {
+    const user = AuthService.getCurrentUser();
+
+    const newGuest = {
+      ...guest,
+      status: "checked-in",
+      createdAt: new Date().toISOString(),
+      createdBy: user?.email || "unknown"
+    };
+
+    await addDoc(collection(db, "guests"), newGuest);
   }
 
-  private static saveGuests(guests: GuestEntry[]): void {
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(guests));
+  static async updateGuestStatus(
+    id: string,
+    status: "checked-in" | "checked-out"
+  ) {
+    await updateDoc(doc(db, "guests", id), {
+      status,
+      checkOutDate:
+        status === "checked-out"
+          ? new Date().toLocaleDateString("en-GB")
+          : null
+    });
   }
 
-  static searchGuests(query: string): GuestEntry[] {
-    const guests = this.getAllGuests();
-    const lowercaseQuery = query.toLowerCase();
-
-    return guests.filter(
-      (guest) =>
-        guest.fullName.toLowerCase().includes(lowercaseQuery) ||
-        guest.phoneNumber.includes(query) ||
-        guest.aadharNumber.includes(query)
-    );
+  static async deleteGuest(id: string) {
+    await deleteDoc(doc(db, "guests", id));
   }
 
-  static getStats() {
-    const guests = this.getAllGuests();
+  static async deleteGuests(ids: string[]) {
+    await Promise.all(ids.map((id) => deleteDoc(doc(db, "guests", id))));
+  }
+
+  static async getStats() {
+    const guests = await this.getAllGuests();
     return {
       total: guests.length,
-      checkedIn: guests.filter((g) => g.status === 'checked-in').length,
-      checkedOut: guests.filter((g) => g.status === 'checked-out').length,
+      checkedIn: guests.filter(g => g.status === "checked-in").length,
+      checkedOut: guests.filter(g => g.status === "checked-out").length
     };
   }
 }
-

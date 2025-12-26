@@ -1,31 +1,34 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AuthService } from '@/lib/auth';
+import { useEffect, useState } from "react";
+import { Navigate } from "react-router-dom";
+import { AuthService } from "@/lib/auth";
 
-interface ProtectedRouteProps {
-  children: React.ReactNode;
-  requiredRole?: 'admin' | 'watchman';
+interface Props {
+  children: JSX.Element;
+  requiredRole?: "admin" | "watchman";
 }
 
-const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
-  const navigate = useNavigate();
+const ProtectedRoute = ({ children, requiredRole }: Props) => {
   const [checking, setChecking] = useState(true);
+  const [userValid, setUserValid] = useState(false);
 
   useEffect(() => {
     const user = AuthService.getCurrentUser();
 
     if (!user) {
-      navigate('/');
+      setUserValid(false);
+      setChecking(false);
       return;
     }
 
     if (requiredRole && user.role !== requiredRole) {
-      navigate(user.role === 'admin' ? '/admin' : '/watchman');
+      setUserValid(false);
+      setChecking(false);
       return;
     }
 
+    setUserValid(true);
     setChecking(false);
-  }, [navigate, requiredRole]);
+  }, [requiredRole]);   // 👈 IMPORTANT — ONLY THIS
 
   if (checking) {
     return (
@@ -35,7 +38,9 @@ const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
     );
   }
 
-  return <>{children}</>;
+  if (!userValid) return <Navigate to="/" replace />;
+
+  return children;
 };
 
 export default ProtectedRoute;

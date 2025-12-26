@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -6,7 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { CalendarIcon, LogOut, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -16,7 +20,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 const WatchmanForm = () => {
   const [formData, setFormData] = useState({
     fullName: "",
-    guestCount: 1,
+    guestCount: "",
     aadharNumber: "",
     phoneNumber: "",
     address: "",
@@ -26,28 +30,67 @@ const WatchmanForm = () => {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [bookedDates, setBookedDates] = useState<Date[]>([]);
   const { toast } = useToast();
   const user = AuthService.getCurrentUser();
 
-  const handleInputChange = (field: string, value: string | number | Date | null) => {
+  // 🔥 Load booked dates from Firestore
+  useEffect(() => {
+    GuestService.getAllGuests().then((data) => {
+      const dates: Date[] = [];
+
+      data.forEach((g) => {
+        if (g.checkInDate && g.checkOutDate) {
+          const start = new Date(g.checkInDate);
+          const end = new Date(g.checkOutDate);
+
+          let current = new Date(start);
+          while (current <= end) {
+            dates.push(new Date(current));
+            current.setDate(current.getDate() + 1);
+          }
+        }
+      });
+
+      setBookedDates(dates);
+    });
+  }, []);
+
+  const handleInputChange = (field: string, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-    setErrors((prev) => ({ ...prev, [field]: "" })); // Clear error on change
+    setErrors((prev) => ({ ...prev, [field]: "" }));
   };
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
-    const { fullName, guestCount, aadharNumber, phoneNumber, address, checkInDate, checkOutDate } = formData;
+    const {
+      fullName,
+      guestCount,
+      aadharNumber,
+      phoneNumber,
+      address,
+      checkInDate,
+      checkOutDate,
+    } = formData;
 
     if (!fullName.trim()) newErrors.fullName = "Full Name is required.";
-    if (!guestCount || guestCount < 1) newErrors.guestCount = "Number of guests must be at least 1.";
-    if (!aadharNumber.trim()) newErrors.aadharNumber = "Aadhar Number is required.";
-    else if (!/^\d{12}$/.test(aadharNumber)) newErrors.aadharNumber = "Aadhar must be exactly 12 digits.";
-    if (!phoneNumber.trim()) newErrors.phoneNumber = "Phone Number is required.";
-    else if (!/^(\+91)?[6-9]\d{9}$/.test(phoneNumber)) newErrors.phoneNumber = "Invalid Indian phone number.";
+    if (guestCount === "" || guestCount < 1) {
+      newErrors.guestCount = "Number of guests must be at least 1.";
+    }
+
+    if (!aadharNumber.trim())
+      newErrors.aadharNumber = "Aadhar Number is required.";
+    else if (!/^\d{12}$/.test(aadharNumber))
+      newErrors.aadharNumber = "Aadhar must be exactly 12 digits.";
+    if (!phoneNumber.trim())
+      newErrors.phoneNumber = "Phone Number is required.";
+    else if (!/^(\+91)?[6-9]\d{9}$/.test(phoneNumber))
+      newErrors.phoneNumber = "Invalid Indian phone number.";
     if (!address.trim()) newErrors.address = "Address is required.";
     if (!checkInDate) newErrors.checkInDate = "Check-in date is required.";
     if (!checkOutDate) newErrors.checkOutDate = "Check-out date is required.";
-    else if (checkInDate && checkOutDate < checkInDate) newErrors.checkOutDate = "Check-out cannot be before check-in.";
+    else if (checkInDate && checkOutDate < checkInDate)
+      newErrors.checkOutDate = "Check-out cannot be before check-in.";
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -55,19 +98,19 @@ const WatchmanForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) return;  
+    if (!validateForm()) return;
     setIsLoading(true);
 
     try {
-     const guestData = {
-  ...formData,
-  checkInDate: formData.checkInDate
-    ? format(formData.checkInDate, "yyyy-MM-dd")
-    : null,
-  checkOutDate: formData.checkOutDate
-    ? format(formData.checkOutDate, "yyyy-MM-dd")
-    : null,
-};
+      const guestData = {
+        ...formData,
+        checkInDate: formData.checkInDate
+          ? format(formData.checkInDate, "yyyy-MM-dd")
+          : null,
+        checkOutDate: formData.checkOutDate
+          ? format(formData.checkOutDate, "yyyy-MM-dd")
+          : null,
+      };
 
       await GuestService.addGuest(guestData);
 
@@ -78,7 +121,7 @@ const WatchmanForm = () => {
 
       setFormData({
         fullName: "",
-        guestCount: 1,
+        guestCount: "",
         aadharNumber: "",
         phoneNumber: "",
         address: "",
@@ -135,102 +178,108 @@ const WatchmanForm = () => {
                 <Users className="w-5 h-5" /> New Guest Entry
               </CardTitle>
             </CardHeader>
+
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Left Column */}
+                  {/* LEFT */}
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="fullName">Full Name *</Label>
+                      <Label>Full Name *</Label>
                       <Input
-                        id="fullName"
                         value={formData.fullName}
-                        onChange={(e) => handleInputChange("fullName", e.target.value)}
-                        placeholder="Enter full name"
-                        className={cn(
-                          "bg-gray-50 text-gray-900 border-gray-300",
-                          errors.fullName && "border-red-500"
-                        )}
+                        onChange={(e) =>
+                          handleInputChange("fullName", e.target.value)
+                        }
+                        className={errors.fullName && "border-red-500"}
                       />
-                      {errors.fullName && <p className="text-red-500 text-sm">{errors.fullName}</p>}
+                      {errors.fullName && (
+                        <p className="text-red-500 text-sm">
+                          {errors.fullName}
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="guestCount">Number of Guests *</Label>
+                      <Label>Guests *</Label>
                       <Input
-                        id="guestCount"
                         type="number"
                         min={1}
                         value={formData.guestCount}
-                        onChange={(e) => handleInputChange("guestCount", parseInt(e.target.value) || 1)}
-                        className={cn(
-                          "bg-gray-50 text-gray-900 border-gray-300",
-                          errors.guestCount && "border-red-500"
-                        )}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "guestCount",
+                            e.target.value === "" ? "" : Number(e.target.value)
+                          )
+                        }
+                        className={errors.guestCount && "border-red-500"}
                       />
-                      {errors.guestCount && <p className="text-red-500 text-sm">{errors.guestCount}</p>}
+
+                      {errors.guestCount && (
+                        <p className="text-red-500 text-sm">
+                          {errors.guestCount}
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="aadharNumber">Aadhar Number *</Label>
+                      <Label>Aadhar *</Label>
                       <Input
-                        id="aadharNumber"
                         value={formData.aadharNumber}
-                        onChange={(e) => handleInputChange("aadharNumber", e.target.value)}
-                        placeholder="XXXX-XXXX-XXXX"
-                        className={cn(
-                          "bg-gray-50 text-gray-900 border-gray-300",
-                          errors.aadharNumber && "border-red-500"
-                        )}
+                        onChange={(e) =>
+                          handleInputChange("aadharNumber", e.target.value)
+                        }
+                        className={errors.aadharNumber && "border-red-500"}
                       />
-                      {errors.aadharNumber && <p className="text-red-500 text-sm">{errors.aadharNumber}</p>}
+                      {errors.aadharNumber && (
+                        <p className="text-red-500 text-sm">
+                          {errors.aadharNumber}
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="phoneNumber">Phone Number *</Label>
+                      <Label>Phone *</Label>
                       <Input
-                        id="phoneNumber"
-                        type="tel"
                         value={formData.phoneNumber}
-                        onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
-                        placeholder="+91 XXXXX XXXXX"
-                        className={cn(
-                          "bg-gray-50 text-gray-900 border-gray-300",
-                          errors.phoneNumber && "border-red-500"
-                        )}
+                        onChange={(e) =>
+                          handleInputChange("phoneNumber", e.target.value)
+                        }
+                        className={errors.phoneNumber && "border-red-500"}
                       />
-                      {errors.phoneNumber && <p className="text-red-500 text-sm">{errors.phoneNumber}</p>}
+                      {errors.phoneNumber && (
+                        <p className="text-red-500 text-sm">
+                          {errors.phoneNumber}
+                        </p>
+                      )}
                     </div>
                   </div>
 
-                  {/* Right Column */}
+                  {/* RIGHT */}
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="address">Address *</Label>
+                      <Label>Address *</Label>
                       <Textarea
-                        id="address"
                         value={formData.address}
-                        onChange={(e) => handleInputChange("address", e.target.value)}
-                        placeholder="Enter full address"
-                        rows={3}
-                        className={cn(
-                          "bg-gray-50 text-gray-900 border-gray-300",
-                          errors.address && "border-red-500"
-                        )}
+                        onChange={(e) =>
+                          handleInputChange("address", e.target.value)
+                        }
+                        className={errors.address && "border-red-500"}
                       />
-                      {errors.address && <p className="text-red-500 text-sm">{errors.address}</p>}
+                      {errors.address && (
+                        <p className="text-red-500 text-sm">{errors.address}</p>
+                      )}
                     </div>
 
-                    {/* Check-in Date */}
+                    {/* Check-in Calendar */}
                     <div className="space-y-2">
-                      <Label>Check-in Date *</Label>
+                      <Label>Check-in *</Label>
                       <Popover>
                         <PopoverTrigger asChild>
                           <Button
                             variant="outline"
                             className={cn(
-                              "flex-1 justify-start text-left font-normal bg-gray-50 border-gray-300 text-gray-900",
-                              !formData.checkInDate && "text-gray-400",
+                              "w-full justify-start",
                               errors.checkInDate && "border-red-500"
                             )}
                           >
@@ -240,28 +289,43 @@ const WatchmanForm = () => {
                               : "Select date"}
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-auto p-2 bg-white text-gray-900 rounded-lg shadow-md" align="start">
+                        <PopoverContent>
                           <Calendar
                             mode="single"
                             selected={formData.checkInDate}
-                            onSelect={(date) => handleInputChange("checkInDate", date || null)}
-                            className="bg-white text-gray-900 rounded-md [&_button[data-selected]]:bg-green-600 [&_button[data-selected]]:text-white [&_button[data-disabled]]:text-gray-400"
+                            onSelect={(d) =>
+                              handleInputChange("checkInDate", d || null)
+                            }
+                            disabled={(date) =>
+                              date <
+                                new Date(new Date().setHours(0, 0, 0, 0)) ||
+                              bookedDates.some(
+                                (d) => d.toDateString() === date.toDateString()
+                              )
+                            }
+                            modifiers={{ booked: bookedDates }}
+                            modifiersClassNames={{
+                              booked: "bg-red-500 text-white hover:bg-red-600",
+                            }}
                           />
                         </PopoverContent>
                       </Popover>
-                      {errors.checkInDate && <p className="text-red-500 text-sm">{errors.checkInDate}</p>}
+                      {errors.checkInDate && (
+                        <p className="text-red-500 text-sm">
+                          {errors.checkInDate}
+                        </p>
+                      )}
                     </div>
 
-                    {/* Check-out Date */}
+                    {/* Check-out Calendar */}
                     <div className="space-y-2">
-                      <Label>Check-out Date *</Label>
+                      <Label>Check-out *</Label>
                       <Popover>
                         <PopoverTrigger asChild>
                           <Button
                             variant="outline"
                             className={cn(
-                              "flex-1 justify-start text-left font-normal bg-gray-50 border-gray-300 text-gray-900",
-                              !formData.checkOutDate && "text-gray-400",
+                              "w-full justify-start",
                               errors.checkOutDate && "border-red-500"
                             )}
                           >
@@ -271,27 +335,42 @@ const WatchmanForm = () => {
                               : "Select date"}
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-auto p-2 bg-white text-gray-900 rounded-lg shadow-md" align="start">
+                        <PopoverContent>
                           <Calendar
                             mode="single"
                             selected={formData.checkOutDate}
-                            onSelect={(date) => handleInputChange("checkOutDate", date || null)}
-                            disabled={(date) => formData.checkInDate ? date < formData.checkInDate : false}
-                            className="bg-white text-gray-900 rounded-md [&_button[data-selected]]:bg-green-600 [&_button[data-selected]]:text-white [&_button[data-disabled]]:text-gray-400"
+                            onSelect={(d) =>
+                              handleInputChange("checkOutDate", d || null)
+                            }
+                            disabled={(date) =>
+                              !formData.checkInDate ||
+                              date < formData.checkInDate ||
+                              bookedDates.some(
+                                (d) => d.toDateString() === date.toDateString()
+                              )
+                            }
+                            modifiers={{ booked: bookedDates }}
+                            modifiersClassNames={{
+                              booked: "bg-red-500 text-white hover:bg-red-600",
+                            }}
                           />
                         </PopoverContent>
                       </Popover>
-                      {errors.checkOutDate && <p className="text-red-500 text-sm">{errors.checkOutDate}</p>}
+                      {errors.checkOutDate && (
+                        <p className="text-red-500 text-sm">
+                          {errors.checkOutDate}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
 
                 <Button
                   type="submit"
-                  className="w-full bg-green-500 hover:bg-green-600 transition-colors text-white font-bold"
                   disabled={isLoading}
+                  className="w-full bg-green-500 hover:bg-green-600 text-white font-bold"
                 >
-                  {isLoading ? "Registering Guest..." : "Register Guest"}
+                  {isLoading ? "Registering..." : "Register Guest"}
                 </Button>
               </form>
             </CardContent>

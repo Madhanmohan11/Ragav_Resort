@@ -34,9 +34,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const AdminDashboard = () => {
   const [guests, setGuests] = useState<GuestEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMonth, setFilterMonth] = useState<string>("");
   const [filterYear, setFilterYear] = useState<string>("");
@@ -61,7 +64,10 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
-    const unsubscribe = GuestService.listenGuests((data) => setGuests(data));
+    const unsubscribe = GuestService.listenGuests((data) => {
+      setGuests(data);
+      setIsLoading(false);  
+    });
     return () => unsubscribe();
   }, []);
 
@@ -219,29 +225,42 @@ const AdminDashboard = () => {
 
         {/* MAIN */}
         <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
-          {/* STATS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Card>
-              <CardContent className="p-5">
-                <p className="text-sm text-gray-500">Total Guests</p>
-                <h2 className="text-3xl font-bold">{stats.total}</h2>
-              </CardContent>
-            </Card>
+ 
+          {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[1, 2, 3].map((i) => (
+                <Card key={i}>
+                  <CardContent className="p-5 space-y-3">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-9 w-28" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card>
+                <CardContent className="p-5">
+                  <p className="text-sm text-gray-500">Total Guests</p>
+                  <h2 className="text-3xl font-bold">{stats.total}</h2>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardContent className="p-5">
-                <p className="text-sm text-gray-500">This Month</p>
-                <h2 className="text-3xl font-bold">{stats.thisMonth}</h2>
-              </CardContent>
-            </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <p className="text-sm text-gray-500">This Month</p>
+                  <h2 className="text-3xl font-bold">{stats.thisMonth}</h2>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardContent className="p-5">
-                <p className="text-sm text-gray-500">This Year</p>
-                <h2 className="text-3xl font-bold">{stats.thisYear}</h2>
-              </CardContent>
-            </Card>
-          </div>
+              <Card>
+                <CardContent className="p-5">
+                  <p className="text-sm text-gray-500">This Year</p>
+                  <h2 className="text-3xl font-bold">{stats.thisYear}</h2>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {/* TABLE */}
           <Card>
@@ -254,7 +273,7 @@ const AdminDashboard = () => {
                 <div className="flex flex-wrap gap-2">
                   <div className="relative">
                     <Search
-                      size={16}  
+                      size={16}
                       className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
                     />
                     <Input
@@ -347,122 +366,134 @@ const AdminDashboard = () => {
             </CardHeader>
 
             <CardContent>
-              <div className="overflow-x-auto max-h-[70vh]">
-                <Table>
-                  <TableHeader className="sticky top-0 bg-white shadow">
-                    <TableRow>
-                      <TableHead>
-                        <input
-                          type="checkbox"
-                          checked={
-                            selectedGuests.size === paginatedGuests.length &&
-                            paginatedGuests.length > 0
-                          }
-                          onChange={toggleSelectAll}
-                        />
-                      </TableHead>
-                      <TableHead>No</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Aadhar</TableHead>
-                      <TableHead>Address</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead>Guests</TableHead>
-                      <TableHead>Check-in</TableHead>
-                      <TableHead>Check-out</TableHead>
-                      <TableHead>Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
 
-                  <TableBody>
-                    {paginatedGuests.map((guest, index) => (
-                      <TableRow key={guest.id}>
-                        <TableCell>
-                          <input
-                            type="checkbox"
-                            checked={selectedGuests.has(guest.id)}
-                            onChange={() => toggleSelectGuest(guest.id)}
-                          />
-                        </TableCell>
+              
+              {isLoading ? (
+                <div className="space-y-3">
+                  {[1,2,3,4,5,6,7].map(i => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto max-h-[70vh]">
+                    <Table>
+                      <TableHeader className="sticky top-0 bg-white shadow">
+                        <TableRow>
+                          <TableHead>
+                            <input
+                              type="checkbox"
+                              checked={
+                                selectedGuests.size === paginatedGuests.length &&
+                                paginatedGuests.length > 0
+                              }
+                              onChange={toggleSelectAll}
+                            />
+                          </TableHead>
+                          <TableHead>No</TableHead>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Aadhar</TableHead>
+                          <TableHead>Address</TableHead>
+                          <TableHead>Phone</TableHead>
+                          <TableHead>Guests</TableHead>
+                          <TableHead>Check-in</TableHead>
+                          <TableHead>Check-out</TableHead>
+                          <TableHead>Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
 
-                        <TableCell>
-                          {(currentPage - 1) * rowsPerPage + index + 1}
-                        </TableCell>
+                      <TableBody>
+                        {paginatedGuests.map((guest, index) => (
+                          <TableRow key={guest.id}>
+                            <TableCell>
+                              <input
+                                type="checkbox"
+                                checked={selectedGuests.has(guest.id)}
+                                onChange={() => toggleSelectGuest(guest.id)}
+                              />
+                            </TableCell>
 
-                        <TableCell>{guest.fullName}</TableCell>
-                        <TableCell>{guest.aadharNumber}</TableCell>
+                            <TableCell>
+                              {(currentPage - 1) * rowsPerPage + index + 1}
+                            </TableCell>
 
-                        <TableCell>
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="p-1"
+                            <TableCell>{guest.fullName}</TableCell>
+                            <TableCell>{guest.aadharNumber}</TableCell>
+
+                            <TableCell>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="p-1"
+                                  >
+                                    <Eye size={16} />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="max-w-xs">
+                                  <p>{guest.address}</p>
+                                </PopoverContent>
+                              </Popover>
+                            </TableCell>
+
+                            <TableCell>{guest.phoneNumber}</TableCell>
+                            <TableCell>
+                              <Badge>{guest.guestCount}</Badge>
+                            </TableCell>
+                            <TableCell>{formatDate(guest.checkInDate)}</TableCell>
+                            <TableCell>{formatDate(guest.checkOutDate)}</TableCell>
+
+                            <TableCell>
+                              <Popover
+                                open={
+                                  deleteGuestId === guest.id &&
+                                  showDeletePopover
+                                }
+                                onOpenChange={setShowDeletePopover}
                               >
-                                <Eye size={16} />
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="max-w-xs">
-                              <p>{guest.address}</p>
-                            </PopoverContent>
-                          </Popover>
-                        </TableCell>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => setDeleteGuestId(guest.id)}
+                                    className="gap-1"
+                                  >
+                                    <Trash2 size={14} /> Delete
+                                  </Button>
+                                </PopoverTrigger>
 
-                        <TableCell>{guest.phoneNumber}</TableCell>
-                        <TableCell>
-                          <Badge>{guest.guestCount}</Badge>
-                        </TableCell>
-                        <TableCell>{formatDate(guest.checkInDate)}</TableCell>
-                        <TableCell>{formatDate(guest.checkOutDate)}</TableCell>
+                                <PopoverContent>
+                                  <p>Delete this guest?</p>
+                                  <div className="flex justify-end gap-2 mt-2">
+                                    <Button
+                                      variant="outline"
+                                      onClick={() =>
+                                        setShowDeletePopover(false)
+                                      }
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      variant="destructive"
+                                      onClick={confirmDeleteGuest}
+                                    >
+                                      Confirm
+                                    </Button>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
 
-                        <TableCell>
-                          <Popover
-                            open={
-                              deleteGuestId === guest.id && showDeletePopover
-                            }
-                            onOpenChange={setShowDeletePopover}
-                          >
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => setDeleteGuestId(guest.id)}
-                                className="gap-1"
-                              >
-                                <Trash2 size={14} /> Delete
-                              </Button>
-                            </PopoverTrigger>
-
-                            <PopoverContent>
-                              <p>Delete this guest?</p>
-                              <div className="flex justify-end gap-2 mt-2">
-                                <Button
-                                  variant="outline"
-                                  onClick={() => setShowDeletePopover(false)}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  onClick={confirmDeleteGuest}
-                                >
-                                  Confirm
-                                </Button>
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* PAGINATION WITH PAGE SIZE SELECTOR */}
-
-              {filteredGuests.length > 0 && (
-                <div
-                  className="
+                  {/* PAGINATION */}
+                  {filteredGuests.length > 0 && (
+                    <div
+                      className="
                       mt-4 
                       bg-white 
                       sticky bottom-0 
@@ -474,59 +505,58 @@ const AdminDashboard = () => {
                       md:justify-between 
                       gap-3
                     "
-                >
-                  {/* Rows Per Page */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-600">
-                      Rows per page:
-                    </span>
-                    <select
-                      value={rowsPerPage}
-                      onChange={(e) => {
-                        setRowsPerPage(Number(e.target.value));
-                        setCurrentPage(1);
-                      }}
-                      className="border rounded px-2 py-1 text-sm"
                     >
-                      <option value={10}>10</option>
-                      <option value={20}>20</option>
-                      <option value={50}>50</option>
-                    </select>
-                  </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-600">
+                          Rows per page:
+                        </span>
+                        <select
+                          value={rowsPerPage}
+                          onChange={(e) => {
+                            setRowsPerPage(Number(e.target.value));
+                            setCurrentPage(1);
+                          }}
+                          className="border rounded px-2 py-1 text-sm"
+                        >
+                          <option value={10}>10</option>
+                          <option value={20}>20</option>
+                          <option value={50}>50</option>
+                        </select>
+                      </div>
 
-                  {/* Page Info */}
-                  <p className="text-sm text-gray-600 text-center">
-                    Page {currentPage} of {totalPages || 1}
-                  </p>
+                      <p className="text-sm text-gray-600 text-center">
+                        Page {currentPage} of {totalPages || 1}
+                      </p>
 
-                  {/* Prev Next */}
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      disabled={currentPage === 1}
-                      onClick={() => setCurrentPage((p) => p - 1)}
-                      className="h-9 w-10 flex items-center justify-center"
-                    >
-                      <ChevronLeft />
-                    </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          disabled={currentPage === 1}
+                          onClick={() => setCurrentPage((p) => p - 1)}
+                          className="h-9 w-10 flex items-center justify-center"
+                        >
+                          <ChevronLeft />
+                        </Button>
 
-                    <Button
-                      variant="outline"
-                      disabled={currentPage === totalPages}
-                      onClick={() => setCurrentPage((p) => p + 1)}
-                      className="h-9 w-10 flex items-center justify-center"
-                    >
-                      <ChevronRight />
-                    </Button>
-                  </div>
-                </div>
-              )}
+                        <Button
+                          variant="outline"
+                          disabled={currentPage === totalPages}
+                          onClick={() => setCurrentPage((p) => p + 1)}
+                          className="h-9 w-10 flex items-center justify-center"
+                        >
+                          <ChevronRight />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
 
-              {!filteredGuests.length && (
-                <div className="text-center py-8 text-gray-500">
-                  <Users className="mx-auto w-10 h-10 mb-3" />
-                  No guest records found
-                </div>
+                  {!filteredGuests.length && (
+                    <div className="text-center py-8 text-gray-500">
+                      <Users className="mx-auto w-10 h-10 mb-3" />
+                      No guest records found
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
